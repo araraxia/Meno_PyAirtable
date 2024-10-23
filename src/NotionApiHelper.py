@@ -466,4 +466,124 @@ class NotionApiHelper:
             'title': self.title_prop_gen(prop_name, prop_type, prop_value, prop_value2, annotation) # string, string, array of strings, array of strings, array of objects
         }
         return type_dict[prop_type]
-
+    
+    def return_property_value(self, property):
+        """
+        Returns the value of a given property based on its type.
+        This method uses a router dictionary to map property types to their respective handler functions.
+        Each handler function processes the property data and returns the value in the correct format.
+        Args:
+            property (dict): The property dictionary containing the type and data of the property.
+        Returns:
+            The value of the property in the appropriate format, or None if an error occurs.
+        Raises:
+            Exception: If an error occurs while processing the property value.
+        Handler Functions:
+            - is_simple: Returns the value of simple property types.
+            - is_uid: Constructs and returns a unique ID from the property data.
+            - is_selstat: Returns the name of the selected status.
+            - is_formula: Processes and returns the value of a formula property.
+            - is_rich_text: Concatenates and returns plain text from rich text property.
+            - is_relation: Processes and returns a list of related IDs.
+            - is_date: Returns the start date from the property data.
+            - is_files: Returns a list of external file URLs.
+            - is_person: Returns the ID of a person property.
+            - is_multi_select: Returns a list of names from a multi-select property.
+            - is_rollup: Processes and returns the value of a rollup property.
+        Router Dictionary:
+            Maps property types to their respective handler functions.
+        """
+        
+        def is_simple(data, prop_type):
+            return data[prop_type]
+        
+        def is_uid(data, prop_type):
+            return data[prop_type]['prefix'] + data[prop_type]['number']
+        
+        def is_selstat(data, prop_type):
+            return data[prop_type]['name']
+        
+        def is_formula(data, prop_type):
+            form_type = data[prop_type]['type']
+            if form_type == "date":
+                return is_date(data[prop_type], form_type)
+            else:
+                return data[prop_type][form_type]     
+        
+        def is_rich_text(data, prop_type):
+            text_list = []
+            for text in data[prop_type]:
+                text_list.append(text['plain_text'])
+            return ", ".join(text_list)
+        
+        def is_relation(data, prop_type):
+            package = []
+            if "has_more" in data:
+                if data["has_more"]: # If there are more than 25 relations, replace data with full data (up to 100).
+                    response = self.get_page_property(id, data['id'])
+                    data[prop_type] = response[prop_type]
+            
+            for id in data[prop_type]:
+                package.append(id['id'])
+        
+        def is_date(data, prop_type):
+            return data[prop_type]['start']
+        
+        def is_files(data, prop_type):
+            file_list = []
+            for file in data[prop_type]:
+                file_list.append(file['external']['url'])
+            return file_list
+        
+        def is_person(data, prop_type):
+            return data[prop_type]['id']
+        
+        def is_multi_select(data, prop_type):
+            package = []
+            for select in data[prop_type]:
+                package.append(select['name'])
+            return package
+        
+        def is_rollup(data, prop_type):
+            roll_type = data[prop_type]['type']
+            if roll_type == "array":
+                return_list = []
+                for each in data[prop_type]['array']:
+                    return_list.append(self.return_property_value(each))
+                return return_list
+            else:
+                return self.return_property_value(data[prop_type][roll_type])
+        
+        router = { # This is a dictionary of functions that return the data in the correct format.
+            'checkbox': is_simple,
+            'created_by': is_person,
+            'created_time': is_simple,
+            'email': is_simple,
+            'number': is_simple,
+            'phone_number': is_simple,
+            'people': is_multi_select, # This will return a list of names instead of IDs.
+            'url': is_simple,
+            'last_edited_time': is_simple,
+            'select': is_selstat,
+            'status': is_selstat,
+            'formula': is_formula,
+            'unique_id': is_uid,
+            'rich_text': is_rich_text,
+            'title': is_rich_text,
+            'relation': is_relation,
+            'date': is_date,
+            'files': is_files,
+            'last_edited_by': is_selstat, # This will return the name instead of the ID.
+            'multi_select': is_multi_select,
+            'rollup': is_rollup
+        }
+        try:
+            prop_type = property['type']
+            for key, check_router in router.items():
+                if key == prop_type:
+                    value = check_router(property, prop_type)
+            return value
+        except Exception as e:
+            print(f"Error returning property value: {e}")
+            logging.error(f"Error returning property value: {e}")
+            return None
