@@ -1,0 +1,64 @@
+[
+    {
+    "airtable_base_id": "appyRFoHs0KkXgGbl",
+    "airtable_table_name": "Vendors",
+    "notion_db_id": "4bba06c4c1f2497e98835880b6419c56",
+    "property_map": {
+        "Business": "Name",
+        "Description": "Notes",
+        "Main Email": "Primary Email",
+        "Main Phone": "Main Phone",
+        "Website": "Website",
+        "Address": "Address",
+        "Notion record": "Notion record",
+        "Production Material": "Fabric"
+    }
+    },
+    {
+    "airtable_base_id": "appyRFoHs0KkXgGbl",
+    "airtable_table_name": "Fabric",
+    "notion_db_id": "08d798f6241e4a36b59e7aef8d3e0f2f",
+    "property_map": {
+        "Product Name": "Name",
+        "Cost per": "Cost per lin. Yard",
+        "Width (in)": "Fabric Width (in.)",
+        "Vendor": "Vendors",
+        "Notion record": "Notion record"
+    }
+    },
+    {
+        "airtable_base_id": "appw0eElcSWt3iidQ",
+        "airtable_table_name": "RMS Purchase Orders",
+        "notion_db_id": "e51caaf845a34283a46cdf4cadaaeea3",
+        "property_map": {
+            "PO #": "PO Number",
+            "Job Description": "Job Description",
+            "Ship-By Date": "Ship-By Date",
+            "PO Due Date": "PO Due Date",
+            "Status": "Status",
+            "Priority": "Priority",
+            "Facilities": "Facilities",
+            "Customer": "Customer",
+            "Purchase Order": "Purchase Order",
+            "Work Order": "Work Order",
+            "Guide":"Guides",
+            "Production Notes": "Production Notes",
+            "Billing/Shipping Notes": "Billing/Shipping Notes",
+            "Ship-To": "Ship-To Address",
+            "UPS/FedEx Billing Address:": "UPS/FedEx Billing Address",
+            "UPS/FedEx#:": "UPS/FedEx#",
+            "Notion record": "Notion record"
+        }
+    },
+    {
+        "airtable_base_id": "appw0eElcSWt3iidQ",
+        "airtable_table_name": "Ship-To Address",
+        "notion_db_id": "03a99f554a4a4d4a9c1870ca62288932",
+        "property_map": {
+            "Name": "Name",
+            "Address": "Bulk Address",
+            "Purchase Orders": "RMS Purchase Orders",
+            "Notion record": "Notion record"
+        }
+    }
+]
