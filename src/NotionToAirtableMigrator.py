@@ -2,13 +2,30 @@
 from pyairtable import Table, Api
 from pyairtable.orm import Model, fields as F
 from NotionApiHelper import NotionApiHelper
-import importlib, json, logging, re, sys, os
+import importlib, json, logging, re, sys, os, datetime
         
 '''
 IT IS EXTREMELY IMPORTANT THAT EVERY DATABASE BEING MIGRATED HAS A 'Notion record' PROPERTY.
+
+# Config Structure
+[
+    {
+    'base_id': base_id,
+    'airtable_table_name': table_name,
+    'notion_db_id': db_id,
+    'property_map': {
+        'notion_property_name': 'airtable_property_name',
+        'notion_property_name': 'airtable_property_name',
+        'notion_property_name': 'airtable_property_name',
+        'notion_property_name': 'airtable_property_name',
+        etc...
+    }
+    }   
+]
 '''        
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src')) # Add the src directory to the path for imports.
         
 logging.basicConfig(
     level=logging.DEBUG,
@@ -18,17 +35,19 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-
 logger = logging.getLogger(__name__)
+
 
 def build_airtable_class_headers(airtable_table_name):
     print(f"Building class headers for Airtable table {airtable_table_name}")
+    class_name = airtable_table_name.replace(" ", "_") # Removes whitespace and replaces with underscores.
+    class_name = re.sub(r'\W+', '', class_name) # Remove any non-alphanumeric characters.
     class_airtable_imports = f'''
 from pyairtable import Table
 from pyairtable.orm import Model, fields as F
     '''
     
-    class_airtable_header = f'class {airtable_table_name}(Model):'
+    class_airtable_header = f'class {class_name}(Model):'
     
     header = f'{class_airtable_imports}\n\n{class_airtable_header}\n\n'
     
@@ -37,6 +56,7 @@ from pyairtable.orm import Model, fields as F
     
 def build_airtable_class_meta(airtable_base_id, airtable_table_name):
     print(f"Building class meta for Airtable table {airtable_table_name}")
+    
     class_airtable_meta = f'''
     class Meta:
         with open('conf/Airtable_Token.txt', 'r') as file:
@@ -44,16 +64,30 @@ def build_airtable_class_meta(airtable_base_id, airtable_table_name):
         base_id = '{airtable_base_id}'
         table_name = '{airtable_table_name}'       
     '''
+    
     print(f"Returning class meta for Airtable table {airtable_table_name}")
+    
     return class_airtable_meta
 
 def build_airtable_class_body(property_map, type_map):
-    print(f"Building class body for Airtable table {airtable_table_name}")
+    """
+    Constructs the body of an Airtable class based on the provided property and type mappings.
+    Args:
+        property_map (dict): A dictionary mapping Notion property names to Airtable property names.
+        type_map (dict): A dictionary mapping Notion property names to their corresponding types.
+    Returns:
+        str: A string representing the body of the Airtable class with fields defined according to the mappings.
+    """
+    
     body = ""
+    
+    # Iterate through the property map to build the class body.
     for notion_property_name, airtable_property_name in property_map.items():
-        class_property_name = airtable_property_name.lower().replace(" ", "_") # Hey remember that this is how the variables are structured for later!
+        
+        class_property_name = airtable_property_name.lower().replace(" ", "_") # Convert to lowercase and replace spaces with underscores.
         class_property_name = re.sub(r'\W+', '', class_property_name) # Remove any non-alphanumeric characters.
-        class_property_map = {
+        
+        class_property_map = { # Maps notion property types to Airtable field types for class construction.
             'checkbox': f'    {class_property_name} = F.CheckboxField(\'{airtable_property_name}\')',
             'created_by': f'    {class_property_name} = F.TextField(\'{airtable_property_name}\')',
             'created_time': f'    {class_property_name} = F.TextField(\'{airtable_property_name}\')',
@@ -77,12 +111,33 @@ def build_airtable_class_body(property_map, type_map):
             'rollup': f'    {class_property_name} = F.TextField(\'{airtable_property_name}\')'    
         }
         
+        # Fetch the property type and add the corresponding field to the class body.
         prop_type = type_map[notion_property_name]
         print(f"{class_property_map[prop_type]}")
         body += f'{class_property_map[prop_type]}\n'
         
-    print(f"Returning class body for Airtable table {airtable_table_name}")
+    logger.info(f"Returning class body for Airtable table {airtable_table_name}")
+    
     return body
+    
+def construct_class(property_map, airtable_base_id, airtable_table_name, type_map):
+    class_code = f'# THIS IS A GENERATED FILE FROM NotionToAirtableMigrator.py\n\n'
+    class_code += f'{build_airtable_class_headers(airtable_table_name)}\n'
+    class_code += f'{build_airtable_class_body(property_map, type_map)}\n'
+    class_code += f'{build_airtable_class_meta(airtable_base_id, airtable_table_name)}\n\n'
+    
+    logger.info(f"Returning class string for Airtable table {airtable_table_name}")
+    return class_code 
+
+def import_new_class(airtable_table_name):
+    try:
+        module = importlib.import_module(f'NTAM_{airtable_table_name}')
+    except ModuleNotFoundError:
+        logger.error(f"Error Importing Class {airtable_table_name} not found in NTAM_{airtable_table_name}.py")
+        return None
+    
+    class_name = airtable_table_name.replace(" ", "_")
+    return getattr(module, class_name)   
         
 def build_type_map(property_map, db_id):
     
@@ -101,29 +156,9 @@ def build_type_map(property_map, db_id):
     print(f"Type map built for database {db_id}\n{type_map}")     
     return type_map, records
     
-def construct_class(property_map, airtable_base_id, airtable_table_name, type_map):
-    print(f"Constructing class string for Airtable table {airtable_table_name}")
-    class_code = f'# THIS IS A GENERATED FILE FROM NotionToAirtableMigrator.py\n\n'
-    class_code += f'{build_airtable_class_headers(airtable_table_name)}\n'
-    class_code += f'{build_airtable_class_body(property_map, type_map)}\n'
-    class_code += f'{build_airtable_class_meta(airtable_base_id, airtable_table_name)}\n\n'
-    
-    print(f"Returning class string for Airtable table {airtable_table_name}")
-    return class_code
-
-
 def fetch_notion_data(db_id):
     print(f"Fetching all records from the Notion database with ID '{db_id}'")
     return notion_helper.query(db_id)
-
-    
-def import_new_class(airtable_table_name):
-    try:
-        module = importlib.import_module(f'NTAM_{airtable_table_name}')
-    except ModuleNotFoundError:
-        return None
-    return getattr(module, airtable_table_name)
-      
 
 def check_table_exists(airtable_base_id, airtable_table_name):
     """
@@ -259,6 +294,51 @@ def repair_table_properties(air_table, property_map, type_map):
     print(f"Properties assessed and repaired for Airtable table {air_table.name}")
     return air_table, relation_list
 
+def create_airtable_records(airtable_record_list, notion_db_records, property_map, type_map, Airtable_Class, notion_db_id):
+    # Iterate through the Notion DB records to create Airtable records
+    for page in notion_db_records:
+        print(f"Processing record {page['id']} from database {notion_db_id}")
+        
+        # Create an instanced Airtable Table Class
+        airtable_record = Airtable_Class()
+        
+        # Iterate through the property map
+        print(f"Itterating through property map for record {page['id']}")
+        for notion_property_name, airtable_property_name in property_map.items():
+            class_property_name = airtable_property_name.lower().replace(" ", "_")
+            class_property_name = re.sub(r'\W+', '', class_property_name) # Remove any non-alphanumeric characters.
+            prop_type = type_map[notion_property_name]
+            
+            # Fetch the Notion property value and assign it to the Airtable record
+            if notion_property_name in page['properties']:
+                print(f"Property {notion_property_name} found in record {page['id']}")
+                notion_property_value = notion_helper.return_property_value(page['properties'][notion_property_name])
+                
+                # Convert the date to a string in a date format for airtable.
+                if prop_type == 'date' and notion_property_value:
+                    if isinstance(notion_property_value, str):
+                        notion_property_value = datetime.datetime.strptime(notion_property_value, '%Y-%m-%d')
+                
+                # Convert the array types to a string for airtable.
+                array_types_to_string = ['relation', 'rollup', 'people', 'files']
+                if prop_type in array_types_to_string and notion_property_value:
+                    notion_property_value = str(notion_property_value)
+                
+                if notion_property_value == []:
+                    notion_property_value = None
+                    
+                print(f"Setting property {class_property_name} to {notion_property_value}")
+                setattr(airtable_record, class_property_name, notion_property_value)
+                
+            else:
+                print(f"Setting property {class_property_name} to None")
+                setattr(airtable_record, class_property_name, None)
+                
+        # Add the record to a list of records to batch save
+        logger.info(f"Adding record {page['id']} to batch save list for table {airtable_table_name}.")
+        airtable_record_list.append(airtable_record) # List of objects.
+    return airtable_record_list
+
 
 def find_relation_database(relations, relation_list, notion_db_id):
     print(f"Finding related databases for database {notion_db_id}")
@@ -269,39 +349,101 @@ def find_relation_database(relations, relation_list, notion_db_id):
         
         while index < len(notion_db_records) or index < 0: # Iterate through the records until we find a page containing relation data.
             if notion_property in notion_db_records[index]['properties']:
-                print(f"Property {notion_property} found in record {notion_db_records[index]['id']}")
-                rel_prop_value = notion_helper.return_property_value(notion_db_records[index]['properties'][notion_property])
-            else:
+                print(f"Property {notion_property} exists in record {notion_db_records[index]['id']}: {notion_db_records[index]['properties'][notion_property]}")
+                rel_prop_value = notion_helper.return_property_value(notion_db_records[index]['properties'][notion_property]) # Returns a list of IDs
+            else: # Property does not exist.
                 continue
             
-            if rel_prop_value:
-                print(f"Relation data found for property {notion_property}")
-                related_page = notion_helper.get_page(rel_prop_value[0]['id'])
+            if rel_prop_value: # Property has data.
+                print(f"Relation data found for property: {rel_prop_value}")
+                related_page = notion_helper.get_page(rel_prop_value[0]) # Fetch a related page so we can get the DB_ID.
                 break # We found the related page, break the loop.
             
-            print(f"Property {notion_property} not found in record {notion_db_records[index]['id']}")
+            # No relation data found, continue to the next record.
+            print(f"Property {notion_property} value is: {rel_prop_value}")
             index += 1
             
         if related_page: # Map what database ID the property relates to.
-            print(f"Mapping property {notion_property} to database {related_page['parent']['database_id']}")
-            relations[notion_db_id]['relation_mapping'] = {notion_property: related_page['parent']['database_id']}
+            related_db_id = related_page['parent']['database_id']
+            
+            logger.info(f"Mapping property {notion_property} to database {related_db_id}")
+            
+            # Add the relation mapping to the relations dictionary. Notion property: Database ID of related table.
+            relations[notion_db_id]['relation_mapping'] = {notion_property: related_db_id}
             
         else: # No relation data found, set the related database ID to None.
-            print(f"Mapping property {notion_property} to None")
+            logger.info(f"Could not find related database for property {notion_property}. Mapping to None.")
             relations[notion_db_id]['relation_mapping'] = {notion_property: None}
             
     print(f"Returning relations:\n{relations}")
-    return relations            
+    return relations           
+
+def make_relation_links(notion_db_id, relations, relation_map, airtable_record_list, property_map):
+    """
+    Establishes relation links between Notion and Airtable records based on the provided mappings.
+    Args:
+        notion_db_id (str): The ID of the Notion database.
+        relations (dict): A dictionary containing relation mappings between Notion properties and related database IDs.
+        relation_map (dict): A dictionary mapping related database IDs to their corresponding Airtable table names and base IDs.
+        airtable_record_list (list): A list of Airtable record objects to be updated with relation links.
+        property_map (dict): A dictionary mapping Notion properties to their corresponding Airtable field names.
+    Returns:
+        list: The updated list of Airtable record objects with established relation links.
+    """
+    
+    logger.info(f"Checking for relation properties in database {notion_db_id}")
+    for notion_property, related_db_id in relations[notion_db_id]['relation_mapping'].items():
+        
+        # Both tables are built, we can link the records.
+        if related_db_id and related_db_id in relation_map:
+            print(f"Both tables built for relation property {notion_property}.")
+            
+            class_property_name = property_map[notion_property].lower().replace(" ", "_")
+            class_property_name = re.sub(r'\W+', '', class_property_name) # Remove any non-alphanumeric characters.              
+            related_table_name = relation_map[related_db_id]['airtable_table_name']
+            related_base_id = relation_map[related_db_id]['airtable_base_id']
+            related_table = api.table(related_base_id, related_table_name)
+            add_field = True
+            
+            # Fetch all records from the related table. Dictionary.
+            print(f"Fetching all records from the related table {related_table_name}")
+            related_records = related_table.all() 
+            
+            # Iterate through the records to find the related record.
+            print(f"Itterating through records to link relation property {notion_property}")
+            for index, current_record in enumerate(airtable_record_list): # current_record is an object.
+                # Fetch the related record from the current record's property.
+                for related_record in related_records['records']: # related_record is a dictionary.
+                    
+                    # If the related record (String of Notion record) is in the current record's property (String of List of Notion ids)
+                    if related_record['fields']['Notion record'] in getattr(current_record, class_property_name):
+                        print(f"Related record found for relation property {notion_property}")
+                        
+                        # Set the relation property to the related record's Airtable ID.
+                        print(f"Setting property REL__{class_property_name} to {related_record['id']}")
+                        logging.info(f"Setting property REL__{class_property_name} to {related_record['id']}")
+                        setattr(current_record, f'REL__{class_property_name}', related_db_id)
+                        
+                        # Save the record back to the list.
+                        print(f"Adding record {current_record} to batch save list.")
+                        airtable_record_list[index] = current_record
+    return airtable_record_list
+
+
 
 '''
-This will be a 4 step program. There's a few things where I'm aiming for simplicity over efficiency.
+This will be a 4 step program to get Airtable on track. There's a few things where I'm aiming for simplicity over efficiency.
  1) Check the Airtable table for the required properties, generating any that are missing.
  2) Create a class for the Airtable table with the required properties.
  3) Iterate through the Notion database records, creating and saving a new Airtable record for each.
  4) Iterate back through all records to make any necessary links after all tables are built.
  '''
 if __name__ == "__main__":
+    
+    # Initialize the Notion API Helper
     notion_helper = NotionApiHelper()
+    
+    # Initialize the Airtable API
     with open('conf/Airtable_Token.txt', 'r') as file:
         api_key = file.read().strip()
     api = Api(api_key)
@@ -315,18 +457,22 @@ if __name__ == "__main__":
     
     # Iterate through the configuration file
     for database in config:
-        print(f"Processing database {database}")
-        airtable_record_list = []
+        logger.info(f"Processing database {database}")
+        
+        airtable_record_list = [] # List of Airtable records to batch save.
         airtable_table_name = database['airtable_table_name']
         airtable_base_id = database['airtable_base_id']
         notion_db_id = database['notion_db_id']
-        property_map = database['property_map']
-        self_relation = False
+        property_map = database['property_map'] # Notion to Airtable property mapping.
+        self_relation = False # If the database is self-referential, this will be set to True.
         
-        relations = {notion_db_id: {}}
-        relations[notion_db_id] = {'airtable_table_name':airtable_table_name, 'airtable_base_id':airtable_base_id, 'relation_mapping':{}}
+        relations = {notion_db_id: {}} # This will be used to store the relation properties and what they relate to.
+        relations[notion_db_id] = { 
+            'airtable_table_name':airtable_table_name,
+            'airtable_base_id':airtable_base_id,
+            'relation_mapping':{}
+        }
 
-        
         # Create the table if it does not exist, also will load the table object to check for properties.
         current_table = check_table_exists(airtable_base_id, airtable_table_name)
         if current_table is None:
@@ -347,92 +493,29 @@ if __name__ == "__main__":
         class_code = construct_class(property_map, airtable_base_id, airtable_table_name, type_map)
         
         # Write the class to a file
-        print(f"Writing class {airtable_table_name} to file as NTAM_{airtable_table_name}.py.")
         with open(f'src/NTAM_{airtable_table_name}.py', 'w') as file:
             file.write(class_code)
         logger.info(f"Class {airtable_table_name} created as NTAM_{airtable_table_name}.py")
         
         # Import the new class
-        print(f"Importing class {airtable_table_name} from NTAM_{airtable_table_name}.py")
         Airtable_Class = import_new_class(airtable_table_name)
+        
         if Airtable_Class is None:
-            print(f"Class {airtable_table_name} not imported from NTAM_{airtable_table_name}.py, skipping to next database.")
-            logger.error(f"Class {airtable_table_name} not imported from NTAM_{airtable_table_name}.py, skipping to next database.")
-            continue
+            logger.error(
+                f"Class {airtable_table_name} not imported from NTAM_{airtable_table_name}.py, skipping to next database."
+                )
+            continue # Skip to the next database if the class is not imported.
         logger.info(f"Class {airtable_table_name} imported from NTAM_{airtable_table_name}.py")
         
-        # Iterate through the Notion DB records to create Airtable records
-        for page in notion_db_records:
-            print(f"Processing record {page['id']} from database {notion_db_id}")
-            
-            # Create an instanced Airtable Table Class
-            airtable_record = Airtable_Class()
-            
-            # Iterate through the property map
-            print(f"Itterating through property map for record {page['id']}")
-            for notion_property_name, airtable_property_name in property_map.items():
-                class_property_name = airtable_property_name.lower().replace(" ", "_")
-                class_property_name = re.sub(r'\W+', '', class_property_name) # Remove any non-alphanumeric characters.
-                prop_type = type_map[notion_property_name]
-                
-                # Fetch the Notion property value and assign it to the Airtable record
-                if notion_property_name in page['properties']:
-                    print(f"Property {notion_property_name} found in record {page['id']}")
-                    notion_property_value = notion_helper.return_property_value(page['properties'][notion_property_name])
-                    
-                    # Convert the date to a string in a date format for airtable.
-                    if prop_type == 'date' and notion_property_value: 
-                        notion_property_value = notion_property_value.strftime('%Y-%m-%d')
-                    
-                    # Convert the array types to a string for airtable.
-                    array_types_to_string = ['relation', 'rollup', 'people', 'files']
-                    if prop_type in array_types_to_string and notion_property_value:
-                        notion_property_value = str(notion_property_value)
-                        
-                    print(f"Setting property {class_property_name} to {notion_property_value}")
-                    setattr(airtable_record, class_property_name, notion_property_value)
-                    
-                else:
-                    print(f"Setting property {class_property_name} to None")
-                    setattr(airtable_record, class_property_name, None)
-                    
-            # Add the record to a list of records to batch save
-            print(f"Adding record {page['id']} to batch save list.")
-            airtable_record_list.append(airtable_record) # List of objects.
+        # Create the Airtable records
+        airtable_record_list = create_airtable_records(
+            airtable_record_list, notion_db_records, property_map, type_map, Airtable_Class, notion_db_id
+        )
         
         # If there are relation properties, check if both tables have been built.
-        print(f"Checking for relation properties in database {notion_db_id}")
-        for notion_property, related_db_id in relations[notion_db_id]['relation_mapping'].items():
-            
-            # Both tables are built, we can link the records.
-            if related_db_id and related_db_id in relation_map:
-                print(f"Both tables built for relation property {notion_property}.")
-                
-                class_property_name = property_map[notion_property].lower().replace(" ", "_")
-                class_property_name = re.sub(r'\W+', '', class_property_name) # Remove any non-alphanumeric characters.              
-                related_table_name = relation_map[related_db_id]['airtable_table_name']
-                related_base_id = relation_map[related_db_id]['airtable_base_id']
-                related_table = api.table(related_base_id, related_table_name)
-                
-                # Fetch all records from the related table. Dictionary.
-                print(f"Fetching all records from the related table {related_table_name}")
-                related_records = related_table.all() 
-                
-                print(f"Itterating through records to link relation property {notion_property}")
-                for index, current_record in enumerate(airtable_record_list): # current_record is an object.
-                    for related_record in related_records['records']: # related_record is a dictionary.
-                        
-                        # If the related record (String of Notion record) is in the current record's property (String of List of Notion ids)
-                        if related_record['fields']['Notion record'] in getattr(airtable_record, class_property_name):
-                            print(f"Related record found for relation property {notion_property}")
-                            
-                            # Set the relation property to the related record's Airtable ID.
-                            print(f"Setting property REL__{class_property_name} to {related_record['id']}")
-                            setattr(current_record, f'REL__{class_property_name}', related_db_id)
-                            
-                            # Save the record back to the list.
-                            print(f"Adding record {current_record} to batch save list.")
-                            airtable_record_list[index] = current_record
+        airtable_record_list = make_relation_links(
+            notion_db_id, relations, relation_map, airtable_record_list, property_map
+        )
             
         # Batch save the records to the table.
         print(f"Batch saving records to Airtable table {airtable_table_name}")
@@ -447,20 +530,4 @@ if __name__ == "__main__":
         json.dump(relation_map, relation_map_file, indent=4)
     logger.info(f"Relation map written to {relation_map_file_path}")
 
-
-''' # Config Structure
-[
-    {
-    'base_id': base_id,
-    'airtable_table_name': table_name,
-    'notion_db_id': db_id,
-    'property_map': {
-        'notion_property_name': 'airtable_property_name',
-        'notion_property_name': 'airtable_property_name',
-        'notion_property_name': 'airtable_property_name',
-        'notion_property_name': 'airtable_property_name',
-        etc...
-    }
-    }   
-]
-'''    
+  
